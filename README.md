@@ -1,42 +1,20 @@
-# Xmip repository template — Rust
+# xmip-core-path-hl7-v2
 
-This repository is the starter snapshot for a Rust Xmip module repository. It is
-not an Xmip runtime capability.
-
-For a .NET 11 surface — the CLI, the PowerShell module, the MAUI desktop GUI or
-the Blazor web GUI — use
-[xmip-template-dotnet](https://github.com/IlleNilsson/xmip-template-dotnet)
-instead. ADR-0014: every user-interfacing module is .NET 11, and
-`xmip-core-abi` is the exception.
-
-A repository generated from this template has independent history. Later
-template changes do not automatically rewrite generated repositories.
-
-## Before implementation
-
-Follow [TEMPLATE_SETUP.md](TEMPLATE_SETUP.md), and item 3 first. The new
-repository must be classified and declared in the authoritative Xmip
-architecture manifest before its responsibility or dependencies are treated as
-accepted architecture.
-
+The `hl7-v2` path technology, a technology of
+[xmip-core-path](https://github.com/IlleNilsson/xmip-core-path). It carries
+`Hl7v2Language`, the `PathLanguage` for the language `hl7-v2`: a field,
+repetition, component or subcomponent of an HL7 v2 message in ER7, in HL7's
+own notation — `PID-5-2`, `OBX#2-5`, `PID-3[2]-1` — read for promote, route
+and process and written for demote. The message is read by the contract
+technology's own reader, once per Message, and a value is read and written
+through HL7's escaping (`\F\`, `\S\`, `\T\`, `\R\`, `\E\`); a write writes the
+message again, segments ended by CR, a new Stream (ADR-0013).
 ## Toolchain
 
-`rust-toolchain.toml` pins the toolchain for the whole estate. rustup reads it
-automatically and installs what is missing. Do not change it here — raising it
-is one deliberate change across every repository.
-
-## Shared governance
-
-Repository-specific licensing remains explicit in [LICENSE](LICENSE).
-Contribution, security, support, issue and pull-request defaults are inherited
-from [IlleNilsson/.github](https://github.com/IlleNilsson/.github) when they are
-not overridden locally.
+`rust-toolchain.toml` pins the toolchain for the whole estate. Do not change it
+here.
 
 ## Verification
 
 The included workflow is manual-only and calls the versioned shared workflow at
-`IlleNilsson/.github@v1`. It does not run on pushes, pull requests or a
-schedule.
-
-The ordered stages are formatting, semantic analysis, linting, compilation and
-linking, and test execution. Packaging and publishing are not configured.
+`IlleNilsson/.github@v1`.
