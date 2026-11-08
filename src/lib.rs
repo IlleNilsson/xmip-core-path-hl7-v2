@@ -155,9 +155,7 @@ impl Segments {
 
 impl Form for Segments {
     fn parse(stream: &Stream) -> Result<Self, ContractError> {
-        let text = stream
-            .text()
-            .map_err(|error| ContractError::new(format!("not UTF-8 text: {error}")))?;
+        let text = path::text(stream)?;
         Self::read(text)
     }
 }
@@ -315,7 +313,7 @@ OBX|1|ST|NOTE||first\rOBX|2|ST|NOTE||a \\F\\ b\r";
         assert!(write("MSH-2", "x").is_err());
         assert!(write("ZZZ-1", "x").is_err());
         let written = rewriting.finish().expect("finishes");
-        let text = String::from_utf8_lossy(written.bytes());
+        let text = String::from_utf8_lossy(written.load().expect("held"));
         assert!(text.starts_with("MSH|^~\\&|LAB|"), "{text}");
         assert!(text.contains("|DOE^JANE|"), "{text}");
         assert!(text.contains("OBX|1|ST|NOTE||x\\S\\y\r"), "{text}");
