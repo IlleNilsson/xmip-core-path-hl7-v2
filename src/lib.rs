@@ -18,7 +18,7 @@
 
 use contract::ContractError;
 use hl7::{Encoding, Message};
-use path::{CompiledExpression, Content, Editable, Form, PathLanguage, Rewriting};
+use path::{CompiledExpression, Content, Editable, Form, Namespaces, PathLanguage, Rewriting};
 use stream::Stream;
 use xcore::ScalarValue;
 
@@ -30,7 +30,12 @@ impl PathLanguage for Hl7v2Language {
         "hl7-v2"
     }
 
-    fn compile(&self, expression: &str) -> Result<Box<dyn CompiledExpression>, ContractError> {
+    fn compile(
+        &self,
+        expression: &str,
+        namespaces: &Namespaces,
+    ) -> Result<Box<dyn CompiledExpression>, ContractError> {
+        namespaces.unused_by(self.language())?;
         Ok(Box::new(Address::parse(expression)?))
     }
 }
@@ -264,7 +269,7 @@ OBX|1|ST|NOTE||first\rOBX|2|ST|NOTE||a \\F\\ b\r";
     fn read(path: &str) -> Option<ScalarValue> {
         let stream = stream(ADT);
         Hl7v2Language
-            .compile(path)
+            .compile(path, &Namespaces::new())
             .expect("compiles")
             .read(&Content::of(&stream))
             .expect("reads")
@@ -287,7 +292,10 @@ OBX|1|ST|NOTE||first\rOBX|2|ST|NOTE||a \\F\\ b\r";
         );
         assert_eq!(read("PID-30"), None);
         for wrong in ["PID", "PID-0", "pid5", "PID-5-a", "PID-3[0]", "PID-1-1-1-1"] {
-            assert!(Hl7v2Language.compile(wrong).is_err(), "{wrong}");
+            assert!(
+                Hl7v2Language.compile(wrong, &Namespaces::new()).is_err(),
+                "{wrong}"
+            );
         }
     }
 
@@ -295,9 +303,11 @@ OBX|1|ST|NOTE||first\rOBX|2|ST|NOTE||a \\F\\ b\r";
     fn a_value_is_written_escaped_into_a_new_stream() {
         let mut rewriting = Rewriting::of(&stream(ADT), StreamId::new(2));
         let mut write = |path: &str, value: &str| {
-            Hl7v2Language.compile(path).and_then(|compiled| {
-                compiled.write(&mut rewriting, ScalarValue::Text(value.into()))
-            })
+            Hl7v2Language
+                .compile(path, &Namespaces::new())
+                .and_then(|compiled| {
+                    compiled.write(&mut rewriting, ScalarValue::Text(value.into()))
+                })
         };
         write("PID-5-2", "JANE").expect("writes");
         write("OBX-5", "x^y").expect("escapes");
