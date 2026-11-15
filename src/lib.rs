@@ -4,22 +4,28 @@
 //!
 //! [`Hl7v2Language`] is the [`PathLanguage`] `hl7-v2`: a field, component
 //! or subcomponent of an HL7 v2 message in ER7, read for promote, route
-//! and process and written for demote. The message is read by the
-//! contract technology's own reader (`xmip-core-contract-hl7-v2`), once
-//! per Message however many paths read it, and a value is read and
-//! written through its escaping.
+//! and process and written for demote, a value read and written through
+//! HL7's escaping.
 //!
 //! A path is HL7's own notation, every number from 1:
 //! `SEG[#N]-FIELD[[REPETITION]][-COMPONENT[-SUBCOMPONENT]]` — `PID-5-2` is
 //! the given name, `OBX#2-5` the value of the second `OBX`, `PID-3[2]-1`
-//! the first component of the second identifier. A write replaces one
-//! value and writes the message again, segments ended by CR as HL7 v2
+//! the first component of the second identifier.
+//!
+//! A read walks the Stream's own text a segment at a time — the
+//! Foundation's one segment walk, `message::segment`, given the encoding
+//! characters by the contract technology's reader
+//! (`xmip-core-contract-hl7-v2`, `er7::Message::walk`) — and cuts only the
+//! field the path names, of the segment it names; past it the walk goes on
+//! to the end, cutting nothing, so a malformed message is refused wherever
+//! it is, in the reader's words. It never reads the message into a tree. A
+//! write needs the whole message: it replaces one value in the reader's
+//! fields and writes the message again, segments ended by CR as HL7 v2
 //! ends them, a new Stream (ADR-0013).
 
-use contract::ContractError;
-use hl7::{Encoding, Message};
-use path::{CompiledExpression, Content, Editable, Form, Namespaces, PathLanguage, Rewriting};
-use stream::Stream;
+use contract::{ContractError, ValidationIssue};
+use hl7::er7::{Encoding, Message};
+use path::{CompiledExpression, Content, Editable, Namespaces, PathLanguage, Rewriting};
 use xcore::ScalarValue;
 
 /// The language `hl7-v2`.
@@ -92,7 +98,27 @@ impl Address {
     }
 }
 
-/// A message's segments, each its fields as written, `MSH-1` at index 1.
+/// The one refusal of a text that is not an HL7 v2 message, in the
+/// reader's words.
+fn refused(issue: ValidationIssue) -> ContractError {
+    let ValidationIssue { message, .. } = issue;
+    ContractError::new(format!("not an HL7 v2 message: {message}"))
+}
+
+/// Where a value lies in a field: repetition, component, subcomponent, its
+/// escapes read back.
+fn value(encoding: Encoding, field: &str, address: &Address) -> Option<String> {
+    let e = encoding;
+    let repetition = field.split(e.repetition).nth(address.repetition - 1)?;
+    let component = repetition.split(e.component).nth(address.component - 1)?;
+    let sub = component
+        .split(e.subcomponent)
+        .nth(address.subcomponent - 1)?;
+    Some(e.unescape(sub))
+}
+
+/// A message's segments, each its fields as written, `MSH-1` at index 1:
+/// what a write edits.
 struct Segments {
     encoding: Encoding,
     segments: Vec<Vec<String>>,
@@ -100,9 +126,7 @@ struct Segments {
 
 impl Segments {
     fn read(text: &str) -> Result<Self, ContractError> {
-        let message = Message::parse(text).map_err(|issue| {
-            ContractError::new(format!("not an HL7 v2 message: {}", issue.message))
-        })?;
+        let message = Message::parse(text).map_err(refused)?;
         Ok(Self {
             encoding: message.encoding,
             segments: message
@@ -120,17 +144,6 @@ impl Segments {
             .filter(|(_, fields)| fields[0] == address.segment)
             .nth(address.occurrence - 1)
             .map(|(at, _)| at)
-    }
-
-    /// Where a value lies in a field: repetition, component, subcomponent.
-    fn value(&self, field: &str, address: &Address) -> Option<String> {
-        let e = self.encoding;
-        let repetition = field.split(e.repetition).nth(address.repetition - 1)?;
-        let component = repetition.split(e.component).nth(address.component - 1)?;
-        let sub = component
-            .split(e.subcomponent)
-            .nth(address.subcomponent - 1)?;
-        Some(e.unescape(sub))
     }
 
     fn written(&self) -> String {
@@ -153,13 +166,6 @@ impl Segments {
     }
 }
 
-impl Form for Segments {
-    fn parse(stream: &Stream) -> Result<Self, ContractError> {
-        let text = path::text(stream)?;
-        Self::read(text)
-    }
-}
-
 impl Editable for Segments {
     const MEDIA_TYPE: &'static str = "x-application/hl7-v2+er7";
 
@@ -175,12 +181,24 @@ impl Editable for Segments {
 }
 
 impl CompiledExpression for Address {
+    /// Walk the whole message, cutting only the field this path names,
+    /// never reading the message into a tree.
     fn read(&self, content: &Content<'_>) -> Result<Option<ScalarValue>, ContractError> {
-        let segments = content.form::<Segments>()?;
-        Ok(segments
-            .index(self)
-            .and_then(|at| segments.segments[at].get(self.field))
-            .and_then(|field| segments.value(field, self))
+        let (encoding, walk) = Message::walk(content.text()?).map_err(refused)?;
+        let mut left = self.occurrence;
+        let mut found = None;
+        for lying in walk {
+            let lying = lying.map_err(refused)?;
+            if left > 0 && lying.identifier() == self.segment {
+                left -= 1;
+                if left == 0 {
+                    found = lying
+                        .field(self.field)
+                        .and_then(|field| value(encoding, field, self));
+                }
+            }
+        }
+        Ok(found
             .filter(|value| !value.is_empty())
             .map(ScalarValue::Text))
     }
@@ -265,12 +283,7 @@ PID|1||123456^^^HOSP^MR~654321^^^LAB^PI||DOE^JOHN||19800101|M\r\
 OBX|1|ST|NOTE||first\rOBX|2|ST|NOTE||a \\F\\ b\r";
 
     fn read(path: &str) -> Option<ScalarValue> {
-        let stream = stream(ADT);
-        Hl7v2Language
-            .compile(path, &Namespaces::new())
-            .expect("compiles")
-            .read(&Content::of(&stream))
-            .expect("reads")
+        read_from(path, ADT)
     }
 
     fn text(value: &str) -> ScalarValue {
@@ -318,5 +331,65 @@ OBX|1|ST|NOTE||first\rOBX|2|ST|NOTE||a \\F\\ b\r";
         assert!(text.contains("|DOE^JANE|"), "{text}");
         assert!(text.contains("OBX|1|ST|NOTE||x\\S\\y\r"), "{text}");
         assert!(text.contains("|M||||^late\r"), "{text}");
+    }
+
+    /// Why `path` cannot be read from `text`, in the reader's words.
+    fn refusal(path: &str, text: &str) -> Option<String> {
+        let stream = stream(text);
+        Hl7v2Language
+            .compile(path, &Namespaces::new())
+            .expect("compiles")
+            .read(&Content::of(&stream))
+            .expect_err("refused")
+            .message
+            .strip_prefix("not an HL7 v2 message: ")
+            .map(str::to_string)
+    }
+
+    #[test]
+    fn a_malformed_message_is_refused_in_the_reader_s_words_wherever_it_is_malformed() {
+        let head = Some("the message does not start with MSH".to_string());
+        assert_eq!(refusal("MSH-9", "<xml/>"), head);
+        let short = Some("MSH-2 is not four ASCII characters".to_string());
+        assert_eq!(refusal("MSH-9", "MSH|^~|&|A\r"), short);
+        // A read walks on past its answer to the end, so what is malformed
+        // after it is refused too, as the whole message read was.
+        let bad = format!("{ADT}BAD SEGMENT|x\r");
+        let said = Some("\"BAD SEGMENT\" is not a segment identifier".to_string());
+        for path in ["MSH-9-2", "PID-5-2", "OBX#2-5", "ZZZ-1"] {
+            assert_eq!(refusal(path, &bad), said, "{path}");
+        }
+        let bare = Some("an MSH segment lacks its separator".to_string());
+        assert_eq!(refusal("MSH-9", &format!("{ADT}MSH\r")), bare);
+    }
+
+    #[test]
+    fn every_path_reads_by_the_walk_what_the_whole_message_holds() {
+        let tree = Segments::read(ADT).expect("reads");
+        for (at, fields) in tree.segments.iter().enumerate() {
+            let id = &fields[0];
+            let before = tree.segments[..at].iter().filter(|s| &s[0] == id).count();
+            for field in 1..=fields.len() {
+                for (repetition, component) in [(1, 1), (1, 2), (2, 1), (1, 9)] {
+                    let path = format!("{id}#{}-{field}[{repetition}]-{component}", before + 1);
+                    let address = Address::parse(&path).expect("an address");
+                    let expected = fields
+                        .get(field)
+                        .and_then(|held| value(tree.encoding, held, &address))
+                        .filter(|value| !value.is_empty())
+                        .map(ScalarValue::Text);
+                    assert_eq!(read_from(&path, ADT), expected, "{path}");
+                }
+            }
+        }
+    }
+
+    fn read_from(path: &str, text: &str) -> Option<ScalarValue> {
+        let stream = stream(text);
+        Hl7v2Language
+            .compile(path, &Namespaces::new())
+            .expect("compiles")
+            .read(&Content::of(&stream))
+            .expect("reads")
     }
 }
