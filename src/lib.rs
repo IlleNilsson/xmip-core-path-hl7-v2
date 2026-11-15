@@ -348,10 +348,11 @@ OBX|1|ST|NOTE||first\rOBX|2|ST|NOTE||a \\F\\ b\r";
 
     #[test]
     fn a_malformed_message_is_refused_in_the_reader_s_words_wherever_it_is_malformed() {
-        let head = Some("the message does not start with MSH".to_string());
+        // The head is refused in the shape's words, as the shape reads it.
+        let head = Some("no MSH at the head".to_string());
         assert_eq!(refusal("MSH-9", "<xml/>"), head);
-        let short = Some("MSH-2 is not four ASCII characters".to_string());
-        assert_eq!(refusal("MSH-9", "MSH|^~|&|A\r"), short);
+        let repeated = "an MSH with an encoding character that is its field separator";
+        assert_eq!(refusal("MSH-9", "MSH|^~|&|A\r"), Some(repeated.to_string()));
         // A read walks on past its answer to the end, so what is malformed
         // after it is refused too, as the whole message read was.
         let bad = format!("{ADT}BAD SEGMENT|x\r");
