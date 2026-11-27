@@ -37,11 +37,6 @@ and `NTE#10000-3`, the last segment's field, 1.3 ms against 8.9 ms. The read
 it replaced, which built the tree of owned fields, took 7 to 10 µs and,
 grown, 17 to 34 ms.
 
-## Toolchain
-
-`rust-toolchain.toml` pins the toolchain for the whole estate. Do not change it
-here.
-
 ## Verification
 
 The included workflow is manual-only and calls the versioned shared workflow at
