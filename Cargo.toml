@@ -14,16 +14,16 @@ path = "src/lib.rs"
 # A Technology depends on its parent Capability (repository-model.md). The
 # message is walked by the Foundation's one segment walk through the
 # contract technology's reader, never a second reader of it.
-path = { package = "xmip-core-path", git = "https://github.com/IlleNilsson/xmip-core-path", branch = "main" }
-contract = { package = "xmip-core-contract", git = "https://github.com/IlleNilsson/xmip-core-contract", branch = "main" }
-hl7 = { package = "xmip-core-contract-hl7-v2", git = "https://github.com/IlleNilsson/xmip-core-contract-hl7-v2", branch = "main" }
-xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main" }
+path = { workspace = true }
+contract = { workspace = true }
+hl7 = { workspace = true }
+xcore = { workspace = true }
 
 [dev-dependencies]
 # The Stream fixture, for the tests only (ADR-0044).
-contract = { package = "xmip-core-contract", git = "https://github.com/IlleNilsson/xmip-core-contract", branch = "main", features = ["test-support"] }
+contract = { workspace = true, features = ["test-support"] }
 # The one latency spread the estate's timing programs hold a figure to.
-xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main", features = ["test-support"] }
+xcore = { workspace = true, features = ["test-support"] }
 
 # The timing program (doc/governance/rust-style.md section 5c): a plain
 # `cargo test` leaves it out, and the landing runs it after every other
